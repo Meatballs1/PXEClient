@@ -14,13 +14,20 @@ def parse_dhcp_response(resp):
         assigned_ip = None
         dhcp_server_ip = None
         is_pxe_client = False
-        pxe_server = ""
-        pxe_file = ""
+        pxe_server = None
+        pxe_file = None
         response_type = None
 
         assigned_ip = resp[BOOTP].yiaddr
+	dhcp_server_ip = resp[BOOTP].siaddr
         pxe_server = resp[BOOTP].sname.strip('\0') # Strip null chars
         pxe_file = resp[BOOTP].file.strip('\0')
+
+	if dhcp_server_ip is None:
+		dhcp_server_ip = resp[IP].src
+
+	if pxe_file is not None:
+		is_pxe_client = True
         
         print_verbose("Source: " + resp[Ether].src)
         print_verbose("Dest: " + resp[Ether].dst) 
@@ -37,6 +44,12 @@ def parse_dhcp_response(resp):
                         is_pxe_client = True
                 elif opt[0] == "message-type":
                         response_type = DHCPTypes[opt[1]]
+		elif opt[0] == 67: # Boot File
+			is_pxe_client = True
+			if pxe_file is None:
+				pxe_file = opt[1]
+			if pxe_server is None:
+				pxe_server = dhcp_server_ip
 
                 print_verbose("DHCP Response: " + str(opt))
 
@@ -118,7 +131,6 @@ def run():
         parser.add_argument('-v', '--verbose', action='store_true', default=False,
            help='Provide verbose feedback')
 
- 
         args = parser.parse_args()
         
         print "[*] PXEClient by Meatballs"
@@ -128,8 +140,6 @@ def run():
         if timeout > 5:
                 print "[*] Timeout value set to %s seconds" % timeout
         
-
-
         # Initialize Global Variables
         global verbose
         global bcast_mac
@@ -171,9 +181,10 @@ def broadcast_method(src_mac, timeout):
         
 def full_dhcp_method(src_mac, timeout):
         pxe_dhcp_server_ip = None
+	pxe_file = None
         std_dhcp_server_ip = None
         client_assigned_ip = None
-        
+     
         print "[*] Sending DHCP Discovery Probe"
 
         discover_results = dhcp_discover(src_mac, timeout)
@@ -182,16 +193,16 @@ def full_dhcp_method(src_mac, timeout):
                 assigned_ip, dhcp_server_ip, is_pxe_client, pxe_server, pxe_file = result
                 if is_pxe_client:
                         print "[+] PXEClient response received from: %s" % dhcp_server_ip
-                        pxe_dhcp_server_ip = dhcp_server_ip
+                        print "[+] PXE server %s" % pxe_server
+			print "[+] PXE file %s" % pxe_file
+			pxe_dhcp_server_ip = dhcp_server_ip
                 elif assigned_ip != "0.0.0.0":
                         client_assigned_ip = assigned_ip
-		
-        if pxe_dhcp_server_ip is not None:                     
+	
+        if pxe_dhcp_server_ip is not None and pxe_file is None:                     
                 print "[*] Sending DHCP Request to %s on UDP port 4011" % pxe_dhcp_server_ip
                 assigned_ip, dhcp_server_ip, is_pxe_client, pxe_server, pxe_file \
                         = dhcp_request(src_mac, timeout, client_assigned_ip, pxe_dhcp_server_ip, 4011)
-                print "[+] PXE server %s" % pxe_server
-                print "[+] PXE file %s" % pxe_file
                 
 
 if __name__ == "__main__":
